@@ -1,0 +1,82 @@
+---
+title: "MyFirstRmd"
+author: "llc"
+date: "2022/2/1"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+
+```{r }
+library(tidyverse)
+library(lubridate)
+url_in <- 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+nypd_case <- read_csv(url_in)
+
+nypd_case <- mutate(nypd_case, OCCUR_DATE = mdy(OCCUR_DATE))
+data <- select(nypd_case,-c(INCIDENT_KEY,X_COORD_CD,Y_COORD_CD,Latitude,Longitude,Lon_Lat,PRECINCT,JURISDICTION_CODE,LOCATION_DESC)) %>% filter(PERP_AGE_GROUP != 'NA')
+
+black_shot_byyr <- select(data, OCCUR_DATE,PERP_AGE_GROUP,PERP_RACE,VIC_RACE) %>% group_by(year = floor_date(OCCUR_DATE, 'year')) %>% filter(VIC_RACE=='BLACK') %>% summarise(black=n())
+
+exceptblack_shot_byyr <- select(data, OCCUR_DATE,PERP_AGE_GROUP,PERP_RACE,VIC_RACE) %>% group_by(year = floor_date(OCCUR_DATE, 'year')) %>% filter(VIC_RACE!='BLACK') %>% summarise(exceptblack=n())
+
+shot_byyr <- left_join(black_shot_byyr, exceptblack_shot_byyr)
+
+all_shot_byyr <- select(data, OCCUR_DATE,PERP_AGE_GROUP,PERP_RACE,VIC_RACE) %>% group_by(year = floor_date(OCCUR_DATE, 'year')) %>% summarise(n = n())
+
+all_shot_byday <- select(data, OCCUR_DATE,PERP_AGE_GROUP,PERP_RACE,VIC_RACE) %>% group_by(OCCUR_DATE) %>% summarise(n = n())
+
+case_byplace <- nypd_case %>% select(OCCUR_DATE,BORO,STATISTICAL_MURDER_FLAG, VIC_RACE) %>% group_by(BORO) %>% summarise(case=n())
+
+shot_byyr <- shot_byyr %>% mutate(black_shot_rate = black/(black+exceptblack))
+```
+
+
+```{r all_shot_byday}
+summary(all_shot_byday)
+```
+
+victim race comparison
+```{r shot_byyr, echo=FALSE}
+summary(shot_byyr)
+shot_byyr %>% ggplot(aes(x = year))+geom_line(aes(y = black, color = 'black'))+geom_point(aes(y = black, color = 'black'))+geom_line(aes(y = exceptblack, color = 'exceptblack'))+geom_point(aes(y = exceptblack, color = 'exceptblack'))
+
+```
+
+```{r data, echo_FALSE}
+table <- select(data, OCCUR_DATE,PERP_AGE_GROUP,PERP_RACE,VIC_RACE)%>% group_by(VIC_RACE)%>%summarise(n=n())
+table <- table %>% mutate(perc = n/sum(n)) %>% arrange(perc) %>% mutate(labels=scales::percent(perc))
+ggplot(table, aes(x = "", y = n, fill = VIC_RACE)) +geom_col()+geom_text(aes(label = labels), size = 2,
+                                                                         position =position_stack(vjust = 0.25))+coord_polar(theta = "y")
+```
+
+number of cases in different area
+```{r case_byplace, echo=FALSE}
+case_byplace %>% ggplot(aes(x=BORO))+geom_col(aes(y=case,color='case'))
+
+```
+
+```{r modeling, echo=FALSE}
+mod <- lm(black~n,data=shot_byyr <- inner_join(shot_byyr, all_shot_byyr))
+summary(mod)
+plot(mod)
+
+```
+```{r pred, echo=FALSE}
+shot_byyr_pred <- shot_byyr %>% mutate(pred = predict(mod))
+shot_byyr_pred %>% ggplot() + geom_point(aes(x=n, y=black),color="blue") + geom_point(aes(x=n, y=pred),color="red")
+```
